@@ -15,6 +15,8 @@ import android.hardware.usb.UsbManager;
 import android.os.Handler;
 import android.util.Log;
 
+import com.magtek.mobile.android.mtlib.MTConnectionState;
+import com.magtek.mobile.android.mtlib.MTConnectionType;
 import com.magtek.mobile.android.mtlib.MTSCRA;
 
 import androidx.activity.result.ActivityResultLauncher;
@@ -24,6 +26,8 @@ import androidx.core.app.ActivityCompat;
 import java.sql.Array;
 import java.util.HashSet;
 import java.util.Set;
+
+import static com.magtek.mobile.android.mtlib.MTSCRAEvent.OnDeviceConnectionStateChanged;
 
 
 public class MagTekCardReader {
@@ -79,6 +83,10 @@ public class MagTekCardReader {
 
         this.lib = new MTSCRA(context, new Handler(message -> {
             switch (message.what) {
+                case OnDeviceConnectionStateChanged:
+                    if (message.obj == MTConnectionState.Connected)
+                        this.deviceConnection.callback(true);
+                    break;
                 default:
                     break;
             }
@@ -129,6 +137,17 @@ public class MagTekCardReader {
                 .stream()
                 .filter(device -> device.getVendorId() == 0x801)
                 .toArray(UsbDevice[]::new);
+    }
+
+    public void connect(String address, DeviceConnection deviceConnection) {
+        this.deviceConnection = deviceConnection;
+        this.lib.setAddress(address);
+        this.lib.openDevice();
+    }
+
+    public void disconnect() {
+        this.lib.clearBuffers();
+        this.lib.closeDevice();
     }
 
     public void startDeviceDiscovery(DeviceDiscovered deviceDiscovered) {

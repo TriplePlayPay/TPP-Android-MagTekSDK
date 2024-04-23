@@ -16,9 +16,12 @@ public class MainActivity extends AppCompatActivity {
 
     private MagTekCardReader cardReader;
     private final String apiKey = "test-api-key";
+    private String usbAddress = "";
 
     public TextView debugText;
     public Button testButton;
+    public Button connectButton;
+    public Button disconnectButton;
     public Button testCancelButton;
 
     @Override
@@ -28,14 +31,26 @@ public class MainActivity extends AppCompatActivity {
 
         debugText = findViewById(R.id.debug_text);
         testButton = findViewById(R.id.test_button);
+        connectButton = findViewById(R.id.connect_button);
+        disconnectButton = findViewById(R.id.disconnect_button);
         testCancelButton = findViewById(R.id.test_cancel_button);
 
-        cardReader = new MagTekCardReader(this, apiKey, MagTekConnectionMethod.Bluetooth);
+        cardReader = new MagTekCardReader(this, apiKey, MagTekConnectionMethod.USB);
 
         testButton.setOnClickListener(view -> {
             cardReader.startDeviceDiscovery((name, rssi) -> {
                 debugText.setText(name);
                 Log.i("TAG", name);
+            });
+        });
+
+        disconnectButton.setOnClickListener(view -> {
+            cardReader.disconnect();
+        });
+
+        connectButton.setOnClickListener(view -> {
+            cardReader.connect(usbAddress, connected -> {
+                connectButton.setText(connected ? "connected" : "disconnected");
             });
         });
 
