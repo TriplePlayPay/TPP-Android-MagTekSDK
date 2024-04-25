@@ -146,7 +146,6 @@ public class MagTekCardReader {
     }
 
     public void disconnect() {
-        this.lib.clearBuffers();
         this.lib.closeDevice();
     }
 
