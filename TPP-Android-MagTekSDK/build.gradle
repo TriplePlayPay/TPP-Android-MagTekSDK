@@ -64,12 +64,15 @@ publishing {
             }
         }
     }
-    repositories.maven {
-        name 'Tpp'
-        url 'https://maven.pkg.github.com/TriplePlayPay/TPP-Android-MagTekSDK'
-        credentials {
-            username "${githubTppUsername}"
-            password "${githubTppToken}"
+
+    if (findProperty('githubTppUsername') != null) {
+        repositories.maven {
+            name 'Tpp'
+            url 'https://maven.pkg.github.com/TriplePlayPay/TPP-Android-MagTekSDK'
+            credentials {
+                username "${githubTppUsername}"
+                password "${githubTppToken}"
+            }
         }
     }
 }
