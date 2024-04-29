@@ -3,57 +3,46 @@ package com.tripleplaypay.magtekdemo;
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.os.Bundle;
-import android.util.Log;
 import android.widget.Button;
 import android.widget.TextView;
 
 import com.tripleplaypay.magteksdk.MagTekCardReader;
-import com.tripleplaypay.magteksdk.MagTekConnectionMethod;
 
-import org.w3c.dom.Text;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class MainActivity extends AppCompatActivity {
-
-    private MagTekCardReader cardReader;
-    private final String apiKey = "test-api-key";
-    private String deviceAddress = "";
-
-    public TextView debugText;
-    public Button testButton;
-    public Button connectButton;
-    public Button disconnectButton;
-    public Button testCancelButton;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        debugText = findViewById(R.id.debug_text);
-        testButton = findViewById(R.id.test_button);
-        connectButton = findViewById(R.id.connect_button);
-        disconnectButton = findViewById(R.id.disconnect_button);
-        testCancelButton = findViewById(R.id.test_cancel_button);
+        AtomicReference<String> deviceName = new AtomicReference<>("no name");
+        MagTekCardReader cardReader = new MagTekCardReader(this, "test-api-key");
 
-        cardReader = new MagTekCardReader(this, apiKey, MagTekConnectionMethod.Bluetooth);
+        TextView debugText = findViewById(R.id.debug_text);
 
+        Button testButton = findViewById(R.id.test_button);
         testButton.setOnClickListener(view -> {
-            cardReader.startDeviceDiscovery((name, rssi) -> {
-                deviceAddress = name;
+            cardReader.startDeviceDiscovery(10000, (name, rssi) -> {
+                deviceName.set(name);
                 debugText.setText(name);
             });
         });
 
+        Button disconnectButton = findViewById(R.id.disconnect_button);
         disconnectButton.setOnClickListener(view -> {
             cardReader.disconnect();
         });
 
+        Button connectButton = findViewById(R.id.connect_button);
         connectButton.setOnClickListener(view -> {
-            cardReader.connect(deviceAddress, connected -> {
+            cardReader.connect(deviceName.get(), 10000, connected -> {
                 connectButton.setText(connected ? "connected" : "disconnected");
             });
         });
 
+        Button testCancelButton = findViewById(R.id.test_cancel_button);
         testCancelButton.setOnClickListener(view -> {
             cardReader.stopDeviceDiscovery();
         });
