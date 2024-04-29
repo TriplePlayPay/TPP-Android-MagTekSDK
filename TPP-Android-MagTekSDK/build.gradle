@@ -1,6 +1,10 @@
 plugins {
     id 'com.android.library'
+    id 'maven-publish'
 }
+
+def namespaceName = 'com.tripleplaypay.magteksdk'
+version = '0.1.0'
 
 android {
     namespace 'com.tripleplaypay.magteksdk'
@@ -23,6 +27,10 @@ android {
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11
     }
+    publishing {
+        singleVariant('release') { withSourcesJar() }
+        singleVariant('debug') { withSourcesJar() }
+    }
 }
 
 dependencies {
@@ -33,4 +41,27 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+}
+
+publishing {
+    publications {
+        release(MavenPublication) {
+            groupId = namespaceName
+            artifactId = 'sdk-release'
+            version = project.version
+
+            afterEvaluate {
+                from components.release
+            }
+        }
+        debug(MavenPublication) {
+            groupId = namespaceName
+            artifactId = 'sdk-debug'
+            version = project.version
+
+            afterEvaluate {
+                from components.debug
+            }
+        }
+    }
 }
