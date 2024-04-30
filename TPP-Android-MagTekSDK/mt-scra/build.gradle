@@ -1,0 +1,39 @@
+plugins {
+    id 'maven-publish'
+}
+
+version '99510109.1'
+
+def proj = project
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            MavenPublication mp = it
+            mp.groupId 'com.tripleplaypay.magteksdk.magtek'
+            mp.artifact([source: proj.layout.projectDirectory
+                    .dir('..')
+                    .dir('libs')
+                    .file('mtscra.jar')
+                    .asFile.toString()])
+        }
+    }
+    if (findProperty('githubTppUsername') != null) {
+        repositories.maven {
+            name 'Tpp'
+            url 'https://maven.pkg.github.com/TriplePlayPay/TPP-Android-MagTekSDK'
+            credentials {
+                username "${githubTppUsername}"
+                password "${githubTppToken}"
+            }
+        }
+    }
+}
+
+/*
+// example usage of this library:
+dependencies {
+    implementation 'com.tripleplaypay.magteksdk.magtek:mt-scra-lib:99510109.1'
+}
+*/
+

@@ -16,4 +16,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "MagTekSDK"
 include ':TPP-Android-MagTekSDK'
+include ':TPP-Android-MagTekSDK:mt-scra'
 include ':TPP-Android-MagTekDemo'
