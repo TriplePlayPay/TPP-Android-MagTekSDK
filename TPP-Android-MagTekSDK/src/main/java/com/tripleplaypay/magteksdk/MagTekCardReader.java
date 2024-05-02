@@ -1,35 +1,13 @@
 package com.tripleplaypay.magteksdk;
-
-import android.Manifest;
 import android.app.Activity;
-import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothManager;
-import android.bluetooth.le.BluetoothLeScanner;
-import android.bluetooth.le.ScanCallback;
-import android.bluetooth.le.ScanResult;
-import android.content.BroadcastReceiver;
 import android.content.Context;
-import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.hardware.usb.UsbDevice;
-import android.hardware.usb.UsbManager;
 import android.os.Handler;
-import android.util.Log;
 
 import com.magtek.mobile.android.mtlib.MTConnectionState;
 import com.magtek.mobile.android.mtlib.MTConnectionType;
 import com.magtek.mobile.android.mtlib.MTSCRA;
 
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
-
-import java.util.ArrayList;
-import java.util.concurrent.atomic.AtomicBoolean;
-
 import static com.magtek.mobile.android.mtlib.MTSCRAEvent.OnDeviceConnectionStateChanged;
-
-
 
 public class MagTekCardReader {
     private final String TAG = MagTekCardReader.class.getSimpleName();
@@ -42,6 +20,7 @@ public class MagTekCardReader {
 
     private final MagTekBLEController bleController;
     private DeviceConnectionCallback deviceConnectionCallback;
+    private DeviceTransactionCallback deviceTransactionCallback;
 
     // state
     private boolean debug = false;
@@ -75,6 +54,8 @@ public class MagTekCardReader {
         if (address == null)
             return;
 
+        // when it connects make sure to set MSR mode and BLE mode
+
         this.lib.setAddress(address);
         this.lib.openDevice();
     }
@@ -95,7 +76,28 @@ public class MagTekCardReader {
     }
 
     public void startTransaction(String amount, DeviceTransactionCallback deviceTransactionCallback) {
-        // TODO
+        this.deviceTransactionCallback = deviceTransactionCallback;
+
+        String n12format = String.format("%12.0f", Float.parseFloat(amount) * 100);
+        byte[] amountBytes = new byte[6];
+
+        int amountBytesIndex = 0;
+        for (int i = 1; i < 12; i+=2)
+            amountBytes[amountBytesIndex++] = (byte) Integer.parseInt(n12format.substring(i-1, i), 16);
+
+        byte[] cashBack = { 0, 0, 0, 0, 0, 0 };
+        byte[] currency = { 0x08, 0x40 };
+
+        this.lib.startTransaction(
+                (byte) 0x3c,
+                (byte) 7,
+                (byte) 0,
+                amountBytes,
+                (byte) 0,
+                cashBack,
+                currency,
+                (byte) 0x02
+        );
     }
 
     public void cancelTransaction() {
