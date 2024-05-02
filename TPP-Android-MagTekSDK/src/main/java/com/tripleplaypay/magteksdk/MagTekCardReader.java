@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static com.magtek.mobile.android.mtlib.MTSCRAEvent.OnDeviceConnectionStateChanged;
 
 
+
 public class MagTekCardReader {
     private final String TAG = MagTekCardReader.class.getSimpleName();
 
@@ -40,13 +41,12 @@ public class MagTekCardReader {
     private final MTSCRA lib;
 
     private final MagTekBLEController bleController;
-    private DeviceConnection deviceConnection;
+    private DeviceConnectionCallback deviceConnectionCallback;
 
     // state
     private boolean debug = false;
 
     // callback signatures
-
 
     public MagTekCardReader(Context context, String apiKey) {
         this.bleController = new MagTekBLEController(context);
@@ -57,7 +57,7 @@ public class MagTekCardReader {
             switch (message.what) {
                 case OnDeviceConnectionStateChanged:
                     if (message.obj == MTConnectionState.Connected)
-                        this.deviceConnection.callback(true);
+                        this.deviceConnectionCallback.callback(true);
                     break;
                 default:
                     break;
@@ -68,8 +68,8 @@ public class MagTekCardReader {
         this.lib.setConnectionType(MTConnectionType.BLEEMV);
     }
 
-    public void connect(String name, float timeout, DeviceConnection deviceConnection) {
-        this.deviceConnection = deviceConnection;
+    public void connect(String name, float timeout, DeviceConnectionCallback deviceConnection) {
+        this.deviceConnectionCallback = deviceConnection;
 
         String address = this.bleController.getDeviceAddress(name);
         if (address == null)
@@ -83,14 +83,26 @@ public class MagTekCardReader {
         this.lib.closeDevice();
     }
 
-    public void startDeviceDiscovery(long timeout, DeviceDiscovered deviceDiscovered) {
+    public void startDeviceDiscovery(long timeout, DeviceDiscoveredCallback deviceDiscoveredCallback) {
         if (!this.bleController.isScanning()) {
-            bleController.toggleScan(deviceDiscovered);
+            bleController.toggleScan(deviceDiscoveredCallback);
         }
     }
 
     public void stopDeviceDiscovery() {
         if (this.bleController.isScanning())
             bleController.toggleScan(null);
+    }
+
+    public void startTransaction(String amount, DeviceTransactionCallback deviceTransactionCallback) {
+        // TODO
+    }
+
+    public void cancelTransaction() {
+        this.lib.cancelTransaction();
+    }
+
+    public String getSerialNumber() {
+        return this.lib.getDeviceSerial();
     }
 }

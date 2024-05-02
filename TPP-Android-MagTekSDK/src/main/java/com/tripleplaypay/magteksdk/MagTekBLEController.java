@@ -25,7 +25,7 @@ public class MagTekBLEController {
     private final Context context;
     private final BluetoothLeScanner leScanner;
 
-    private DeviceDiscovered deviceDiscovered;
+    private DeviceDiscoveredCallback deviceDiscoveredCallback;
     private boolean scanning = false;
 
     private final Hashtable<String, BluetoothDevice> devices = new Hashtable<>();
@@ -48,8 +48,8 @@ public class MagTekBLEController {
             if (name != null && name.contains("tDynamo") && !devices.containsKey(name)) {
                 Log.i(TAG, String.format("found device: %s: %d", name, result.getRssi()));
                 devices.put(name, device);
-                if (deviceDiscovered != null)
-                    deviceDiscovered.callback(name, result.getRssi());
+                if (deviceDiscoveredCallback != null)
+                    deviceDiscoveredCallback.callback(name, result.getRssi());
             }
         }
     };
@@ -71,8 +71,8 @@ public class MagTekBLEController {
         return this.scanning;
     }
 
-    public void toggleScan(DeviceDiscovered deviceDiscovered) {
-        this.deviceDiscovered = deviceDiscovered;
+    public void toggleScan(DeviceDiscoveredCallback deviceDiscoveredCallback) {
+        this.deviceDiscoveredCallback = deviceDiscoveredCallback;
 
         if (ContextCompat.checkSelfPermission(this.context, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions((Activity) this.context, new String[] { Manifest.permission.BLUETOOTH_SCAN }, 1);

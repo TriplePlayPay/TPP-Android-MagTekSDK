@@ -1,5 +1,5 @@
 package com.tripleplaypay.magteksdk;
 
-public interface DeviceConnection {
+public interface DeviceConnectionCallback {
     void callback(boolean connected);
 }
