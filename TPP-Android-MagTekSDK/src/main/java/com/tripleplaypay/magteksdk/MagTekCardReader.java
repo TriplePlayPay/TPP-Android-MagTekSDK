@@ -48,7 +48,7 @@ public class MagTekCardReader {
 
     // callback signatures
 
-    public MagTekCardReader(Context context, String apiKey) {
+    public MagTekCardReader(Activity context, String apiKey) {
         this.bleController = new MagTekBLEController(context);
         this.context = context;
         this.apiKey = apiKey;

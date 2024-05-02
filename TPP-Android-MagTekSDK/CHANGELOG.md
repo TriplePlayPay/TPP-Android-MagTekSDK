@@ -1,6 +1,6 @@
 # changelog
 
-* 0.2.0-rc.1
+* 0.2.0-rc.1, 0.2.0-rc.2
 
 preview of new functionality: cancel transaction, get serial number
 
