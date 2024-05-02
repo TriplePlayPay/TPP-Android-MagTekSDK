@@ -1,5 +1,9 @@
 # changelog
 
+* 0.2.0-rc.1
+
+preview of new functionality: cancel transaction, get serial number
+
 * 0.1.1
 
 re-publish after making public
