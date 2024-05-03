@@ -29,6 +29,11 @@ public class MainActivity extends AppCompatActivity {
             });
         });
 
+        Button stopTransactionButton = findViewById(R.id.stop_transaction_button);
+        stopTransactionButton.setOnClickListener(view -> {
+            cardReader.cancelTransaction();
+        });
+
         Button testButton = findViewById(R.id.test_button);
         testButton.setOnClickListener(view -> {
             cardReader.startDeviceDiscovery(10000, (name, rssi) -> {
