@@ -8,8 +8,10 @@ import com.magtek.mobile.android.mtlib.MTConnectionState;
 import com.magtek.mobile.android.mtlib.MTConnectionType;
 import com.magtek.mobile.android.mtlib.MTSCRA;
 import com.magtek.mobile.android.mtlib.MTEMVEvent;
+import com.magtek.mobile.android.mtlib.MTSCRAEvent;
 
-import static com.magtek.mobile.android.mtlib.MTSCRAEvent.OnDeviceConnectionStateChanged;
+import java.util.Timer;
+import java.util.TimerTask;
 
 public class MagTekCardReader {
     final String TAG = MagTekCardReader.class.getSimpleName();
@@ -24,8 +26,12 @@ public class MagTekCardReader {
     DeviceConnectionCallback deviceConnectionCallback;
     DeviceTransactionCallback deviceTransactionCallback;
 
-    String deviceMessage;
+    String lastTransactionMessage;
+    TransactionStatus lastTransactionStatus;
+    TransactionEvent lastTransactionEvent;
 
+    String deviceSerialNumber = "00000000000000000000000000000000";
+    boolean deviceConnected = false;
 
     boolean debug = false;
 
@@ -37,22 +43,31 @@ public class MagTekCardReader {
     }
 
     public MagTekCardReader(Activity context, String apiKey) {
-        this.bleController = new MagTekBLEController(context);
+        bleController = new MagTekBLEController(context);
         this.context = context;
         this.apiKey = apiKey;
 
-        this.lib = new MTSCRA(context, new Handler(message -> {
+        lib = new MTSCRA(context, new Handler(message -> {
             switch (message.what) {
-                case OnDeviceConnectionStateChanged:
-                    if (message.obj == MTConnectionState.Connected)
-                        this.deviceConnectionCallback.callback(true);
+                case MTSCRAEvent.OnDeviceConnectionStateChanged:
+                    deviceConnected = message.obj == MTConnectionState.Connected;
+                    if (deviceConnected)
+                        emitDeviceConnected();
+                    else if (message.obj == MTConnectionState.Disconnected) // emit disconnected
+                        emitDeviceDisconnected();
                     break;
                 case MTEMVEvent.OnDisplayMessageRequest:
-                    this.deviceMessage = getTextFromBytes((byte[]) message.obj);
-                    this.deviceTransactionCallback.callback(this.deviceMessage, null, null);
+                    lastTransactionMessage = getTextFromBytes((byte[]) message.obj);
+                    deviceTransactionCallback.callback(lastTransactionMessage, lastTransactionEvent, lastTransactionStatus);
                     break;
                 case MTEMVEvent.OnTransactionStatus:
-                    //this.deviceTransactionCallback.callback();
+                    byte[] transactionStatusInfo = (byte[]) message.obj;
+                    lastTransactionEvent = TransactionEvent.fromByte(transactionStatusInfo[0]);
+                    lastTransactionStatus = TransactionStatus.fromByte(transactionStatusInfo[2]);
+                    deviceTransactionCallback.callback(lastTransactionMessage, lastTransactionEvent, lastTransactionStatus);
+                    break;
+                case MTSCRAEvent.OnDeviceNotPaired:
+                    deviceConnectionCallback.callback(false);
                     break;
                 default:
                     break;
@@ -60,38 +75,52 @@ public class MagTekCardReader {
             return true;
         }));
 
-        this.lib.setConnectionType(MTConnectionType.BLEEMVT);
+        lib.setConnectionType(MTConnectionType.BLEEMVT);
     }
 
-    public void connect(String name, float timeout, DeviceConnectionCallback deviceConnection) {
-        this.deviceConnectionCallback = deviceConnection;
+    private void emitDeviceConnected() {
+        lib.clearBuffers();
+        deviceSerialNumber = lib.getDeviceSerial();
+        lib.sendCommandToDevice("580101"); // set MSR
+        lib.sendCommandToDevice("480101"); // set BLE
+        if (deviceConnectionCallback != null)
+            deviceConnectionCallback.callback(true);
+    }
+
+    private void emitDeviceDisconnected() {
+        if (deviceConnectionCallback != null)
+            deviceConnectionCallback.callback(false);
+    }
+
+    public void connect(String name, float timeout, DeviceConnectionCallback deviceConnectionCallback) {
+        this.deviceConnectionCallback = deviceConnectionCallback;
 
         String address = this.bleController.getDeviceAddress(name);
         if (address == null)
             return;
 
-        this.lib.setAddress(address);
-        this.lib.openDevice();
-
-
+        lib.setAddress(address);
+        lib.openDevice();
     }
 
     public void disconnect() {
-        this.lib.closeDevice();
+        lib.closeDevice();
     }
 
     public void startDeviceDiscovery(long timeout, DeviceDiscoveredCallback deviceDiscoveredCallback) {
-        if (!this.bleController.isScanning()) {
+        if (!bleController.isScanning()) {
             bleController.toggleScan(deviceDiscoveredCallback);
         }
     }
 
     public void stopDeviceDiscovery() {
-        if (this.bleController.isScanning())
+        if (bleController.isScanning())
             bleController.toggleScan(null);
     }
 
     public void startTransaction(String amount, DeviceTransactionCallback deviceTransactionCallback) {
+        if (debug) Log.d(TAG, "startTransaction: called with amount $" + amount);
+
         this.deviceTransactionCallback = deviceTransactionCallback;
 
         String n12format = String.format("%12.0f", Float.parseFloat(amount) * 100);
@@ -123,10 +152,13 @@ public class MagTekCardReader {
     }
 
     public void cancelTransaction() {
-        this.lib.cancelTransaction();
+        lib.cancelTransaction();
+        if (debug) Log.d(TAG, "cancelTransaction: called");
     }
 
     public String getSerialNumber() {
-        return this.lib.getDeviceSerial();
+        String serialNumber = lib.getDeviceSerial();
+        if (debug) Log.d(TAG, "getSerialNumber: " + serialNumber);
+        return serialNumber;
     }
 }
