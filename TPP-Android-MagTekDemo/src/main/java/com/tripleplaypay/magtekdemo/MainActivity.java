@@ -22,6 +22,13 @@ public class MainActivity extends AppCompatActivity {
 
         TextView debugText = findViewById(R.id.debug_text);
 
+        Button startTransactionButton = findViewById(R.id.start_transaction_button);
+        startTransactionButton.setOnClickListener(view -> {
+            cardReader.startTransaction("1.23", (message, event, status) -> {
+                debugText.setText(message);
+            });
+        });
+
         Button testButton = findViewById(R.id.test_button);
         testButton.setOnClickListener(view -> {
             cardReader.startDeviceDiscovery(10000, (name, rssi) -> {
@@ -38,7 +45,7 @@ public class MainActivity extends AppCompatActivity {
         Button connectButton = findViewById(R.id.connect_button);
         connectButton.setOnClickListener(view -> {
             cardReader.connect(deviceName.get(), 10000, connected -> {
-                connectButton.setText(connected ? "connected" : "disconnected");
+                debugText.setText(connected ? "connected" : "disconnected");
             });
         });
 

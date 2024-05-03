@@ -6,6 +6,7 @@ import android.os.Handler;
 import com.magtek.mobile.android.mtlib.MTConnectionState;
 import com.magtek.mobile.android.mtlib.MTConnectionType;
 import com.magtek.mobile.android.mtlib.MTSCRA;
+import com.magtek.mobile.android.mtlib.MTEMVEvent;
 
 import static com.magtek.mobile.android.mtlib.MTSCRAEvent.OnDeviceConnectionStateChanged;
 
@@ -27,6 +28,30 @@ public class MagTekCardReader {
 
     // callback signatures
 
+    private String getTextString(byte[] data, int start, int length)
+    {
+        String result = "";
+
+        if (data != null && data.length > 0)
+        {
+            StringBuilder stringBuilder = new StringBuilder(data.length+1);
+            for(int i = start; i < length; i++)
+            {
+                try
+                {
+                    stringBuilder.append(String.format("%c", data[i]));
+                }
+                catch (Exception ex)
+                {
+                    stringBuilder.append("<?>");
+                }
+            }
+            result = stringBuilder.toString();
+        }
+
+        return result;
+    }
+
     public MagTekCardReader(Activity context, String apiKey) {
         this.bleController = new MagTekBLEController(context);
         this.context = context;
@@ -38,13 +63,16 @@ public class MagTekCardReader {
                     if (message.obj == MTConnectionState.Connected)
                         this.deviceConnectionCallback.callback(true);
                     break;
+                case MTEMVEvent.OnDisplayMessageRequest:
+                    byte[] bytes = (byte[]) message.obj;
+                    this.deviceTransactionCallback.callback(getTextString(bytes, 0, bytes.length), null, null);
                 default:
                     break;
             }
             return true;
         }));
 
-        this.lib.setConnectionType(MTConnectionType.BLEEMV);
+        this.lib.setConnectionType(MTConnectionType.BLEEMVT);
     }
 
     public void connect(String name, float timeout, DeviceConnectionCallback deviceConnection) {
@@ -53,8 +81,6 @@ public class MagTekCardReader {
         String address = this.bleController.getDeviceAddress(name);
         if (address == null)
             return;
-
-        // when it connects make sure to set MSR mode and BLE mode
 
         this.lib.setAddress(address);
         this.lib.openDevice();
@@ -82,8 +108,12 @@ public class MagTekCardReader {
         byte[] amountBytes = new byte[6];
 
         int amountBytesIndex = 0;
-        for (int i = 1; i < 12; i+=2)
-            amountBytes[amountBytesIndex++] = (byte) Integer.parseInt(n12format.substring(i-1, i), 16);
+        for (int i = 1; i < 12; i+=2) {
+            String stringByte = n12format.substring(i-1, i).strip();
+            if (!stringByte.isEmpty()) {
+                amountBytes[amountBytesIndex++] = (byte) Integer.parseInt(stringByte, 16);
+            }
+        }
 
         byte[] cashBack = { 0, 0, 0, 0, 0, 0 };
         byte[] currency = { 0x08, 0x40 };
