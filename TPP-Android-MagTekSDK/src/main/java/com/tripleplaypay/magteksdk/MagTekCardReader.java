@@ -2,6 +2,7 @@ package com.tripleplaypay.magteksdk;
 import android.app.Activity;
 import android.content.Context;
 import android.os.Handler;
+import android.util.Log;
 
 import com.magtek.mobile.android.mtlib.MTConnectionState;
 import com.magtek.mobile.android.mtlib.MTConnectionType;
@@ -11,45 +12,28 @@ import com.magtek.mobile.android.mtlib.MTEMVEvent;
 import static com.magtek.mobile.android.mtlib.MTSCRAEvent.OnDeviceConnectionStateChanged;
 
 public class MagTekCardReader {
-    private final String TAG = MagTekCardReader.class.getSimpleName();
+    final String TAG = MagTekCardReader.class.getSimpleName();
 
-    private final Context context;
-    private final String apiKey;
-    // private final MagTekConnectionMethod connectionMethod;
+    final Context context;
+    final String apiKey;
 
-    private final MTSCRA lib;
+    final MTSCRA lib;
 
-    private final MagTekBLEController bleController;
-    private DeviceConnectionCallback deviceConnectionCallback;
-    private DeviceTransactionCallback deviceTransactionCallback;
+    final MagTekBLEController bleController;
 
-    // state
-    private boolean debug = false;
+    DeviceConnectionCallback deviceConnectionCallback;
+    DeviceTransactionCallback deviceTransactionCallback;
 
-    // callback signatures
+    String deviceMessage;
 
-    private String getTextString(byte[] data, int start, int length)
-    {
-        String result = "";
 
-        if (data != null && data.length > 0)
-        {
-            StringBuilder stringBuilder = new StringBuilder(data.length+1);
-            for(int i = start; i < length; i++)
-            {
-                try
-                {
-                    stringBuilder.append(String.format("%c", data[i]));
-                }
-                catch (Exception ex)
-                {
-                    stringBuilder.append("<?>");
-                }
-            }
-            result = stringBuilder.toString();
-        }
+    boolean debug = false;
 
-        return result;
+    private String getTextFromBytes(byte[] data) {
+        StringBuilder stringBuilder = new StringBuilder();
+        for (byte datum : data)
+            stringBuilder.append(String.format("%c", datum));
+        return stringBuilder.toString();
     }
 
     public MagTekCardReader(Activity context, String apiKey) {
@@ -64,8 +48,12 @@ public class MagTekCardReader {
                         this.deviceConnectionCallback.callback(true);
                     break;
                 case MTEMVEvent.OnDisplayMessageRequest:
-                    byte[] bytes = (byte[]) message.obj;
-                    this.deviceTransactionCallback.callback(getTextString(bytes, 0, bytes.length), null, null);
+                    this.deviceMessage = getTextFromBytes((byte[]) message.obj);
+                    this.deviceTransactionCallback.callback(this.deviceMessage, null, null);
+                    break;
+                case MTEMVEvent.OnTransactionStatus:
+                    //this.deviceTransactionCallback.callback();
+                    break;
                 default:
                     break;
             }
@@ -84,6 +72,8 @@ public class MagTekCardReader {
 
         this.lib.setAddress(address);
         this.lib.openDevice();
+
+
     }
 
     public void disconnect() {
@@ -114,6 +104,8 @@ public class MagTekCardReader {
                 amountBytes[amountBytesIndex++] = (byte) Integer.parseInt(stringByte, 16);
             }
         }
+
+        Log.d(TAG, "startTransaction: " + n12format);
 
         byte[] cashBack = { 0, 0, 0, 0, 0, 0 };
         byte[] currency = { 0x08, 0x40 };

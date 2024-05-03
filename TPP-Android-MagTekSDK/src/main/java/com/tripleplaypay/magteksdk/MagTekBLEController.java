@@ -20,47 +20,47 @@ import androidx.core.content.ContextCompat;
 import java.util.Hashtable;
 
 public class MagTekBLEController {
-    private final String TAG = MagTekBLEController.class.getSimpleName();
+    static final String TAG = MagTekBLEController.class.getSimpleName();
 
-    private final Context context;
-    private final BluetoothLeScanner leScanner;
+    final Activity activity;
+    final BluetoothLeScanner leScanner;
 
-    private DeviceDiscoveredCallback deviceDiscoveredCallback;
-    private boolean scanning = false;
+    DeviceDiscoveredCallback deviceDiscoveredCallback;
+    boolean scanning = false;
 
-    private final Hashtable<String, BluetoothDevice> devices = new Hashtable<>();
+    final Hashtable<String, BluetoothDevice> devices = new Hashtable<>();
 
-    private final ScanCallback scanCallback = new ScanCallback() {
+    final ScanCallback scanCallback = new ScanCallback() {
         @Override
         public void onScanResult(int callbackType, ScanResult result) {
-            super.onScanResult(callbackType, result);
+        super.onScanResult(callbackType, result);
 
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions((Activity) context, new String[] { Manifest.permission.BLUETOOTH_CONNECT }, 2);
-                return; // if the permission was not set they will have to click on their button again
-            }
+        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(activity, new String[] { Manifest.permission.BLUETOOTH_CONNECT }, 2);
+            return; // if the permission was not set they will have to click on their button again
+        }
 
-            BluetoothDevice device = result.getDevice();
-            String name = device.getName();
+        BluetoothDevice device = result.getDevice();
+        String name = device.getName();
 
-            // if the name is visible + the name has tDynamo in it somewhere + it has not been
-            // discovered yet
-            if (name != null && name.contains("tDynamo") && !devices.containsKey(name)) {
-                Log.i(TAG, String.format("found device: %s: %d", name, result.getRssi()));
-                devices.put(name, device);
-                if (deviceDiscoveredCallback != null)
-                    deviceDiscoveredCallback.callback(name, result.getRssi());
-            }
+        // if the name is visible + the name has tDynamo in it somewhere + it has not been
+        // discovered yet
+        if (name != null && name.contains("tDynamo") && !devices.containsKey(name)) {
+            Log.i(TAG, String.format("found device: %s: %d", name, result.getRssi()));
+            devices.put(name, device);
+            if (deviceDiscoveredCallback != null)
+                deviceDiscoveredCallback.callback(name, result.getRssi());
+        }
         }
     };
 
-    MagTekBLEController(Context context) {
+    MagTekBLEController(Activity activity) {
         // MagTek tDynamo is a Bluetooth LE device. Therefore we need to access the BLE
         // functionality of Android's bluetooth adapter.
 
         // get handle to bluetooth adapter subsystem ->
         this.leScanner = BluetoothAdapter.getDefaultAdapter().getBluetoothLeScanner();
-        this.context = context; // query the passed in context for permissions (must be handled by Activity)
+        this.activity = activity;
     }
 
     public String getDeviceAddress(String name) {
@@ -74,8 +74,8 @@ public class MagTekBLEController {
     public void toggleScan(DeviceDiscoveredCallback deviceDiscoveredCallback) {
         this.deviceDiscoveredCallback = deviceDiscoveredCallback;
 
-        if (ContextCompat.checkSelfPermission(this.context, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions((Activity) this.context, new String[] { Manifest.permission.BLUETOOTH_SCAN }, 1);
+        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(activity, new String[] { Manifest.permission.BLUETOOTH_SCAN }, 1);
             return; // if the permission was not set they will have to click on their button again
         }
 
