@@ -1,5 +1,9 @@
 # changelog
 
+* 0.3.0-rc.1
+
+adds start transaction functionality and fixes bluetooth connectivity issues
+
 * 0.2.0-rc.1, 0.2.0-rc.2
 
 preview of new functionality: cancel transaction, get serial number
