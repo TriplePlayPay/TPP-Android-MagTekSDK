@@ -13,21 +13,21 @@ import com.magtek.mobile.android.mtlib.MTSCRAEvent;
 public class MagTekCardReader {
     final String TAG = MagTekCardReader.class.getSimpleName();
 
-    final Context context;
-    final String apiKey;
+    private final Activity activity;
+    private final String apiKey;
 
-    final MTSCRA lib;
+    private final MTSCRA lib;
 
-    final MagTekBLEController bleController;
+    private final MagTekBLESupport ble;
 
-    DeviceConnectionCallback deviceConnectionCallback;
-    DeviceTransactionCallback deviceTransactionCallback;
+    private DeviceConnectionCallback deviceConnectionCallback;
+    private DeviceTransactionCallback deviceTransactionCallback;
 
-    String lastTransactionMessage = "NO MESSAGE";
-    TransactionStatus lastTransactionStatus = TransactionStatus.noStatus;
-    TransactionEvent lastTransactionEvent = TransactionEvent.noEvents;
+    private String lastTransactionMessage = "NO MESSAGE";
+    private TransactionStatus lastTransactionStatus = TransactionStatus.noStatus;
+    private TransactionEvent lastTransactionEvent = TransactionEvent.noEvents;
 
-    String deviceSerialNumber = "00000000000000000000000000000000";
+    private String deviceSerialNumber = "00000000000000000000000000000000";
     boolean deviceConnected = false;
 
     boolean debug = false;
@@ -39,12 +39,12 @@ public class MagTekCardReader {
         return stringBuilder.toString();
     }
 
-    public MagTekCardReader(Activity context, String apiKey) {
-        bleController = new MagTekBLEController(context);
-        this.context = context;
+    public MagTekCardReader(Activity activity, String apiKey) {
+        ble = new MagTekBLESupport(activity);
+        this.activity = activity;
         this.apiKey = apiKey;
 
-        lib = new MTSCRA(context, new Handler(message -> {
+        lib = new MTSCRA(activity, new Handler(message -> {
             switch (message.what) {
                 case MTSCRAEvent.OnDeviceConnectionStateChanged:
                     deviceConnected = message.obj == MTConnectionState.Connected;
@@ -76,12 +76,16 @@ public class MagTekCardReader {
     }
 
     private void emitDeviceConnected() {
-        lib.clearBuffers();
+        lib.clearBuffers(); // reset device
         deviceSerialNumber = lib.getDeviceSerial();
-        int result1 = lib.sendCommandToDevice("580101"); // set MSR
-        int result2 = lib.sendCommandToDevice("480101"); // set BLE
+        int msrResult = lib.sendCommandToDevice("580101"); // set MSR
+        int bleResult = lib.sendCommandToDevice("480101"); // set BLE
 
-        Log.d(TAG, String.format("emitDeviceConnected: %d, %d", result1, result2));
+        if (msrResult != 0)
+            throw new RuntimeException("Could not set device to MSR mode");
+
+        if (bleResult != 0)
+            throw new RuntimeException("Could not put device into BLE mode");
 
         if (deviceConnectionCallback != null)
             deviceConnectionCallback.callback(true);
@@ -92,9 +96,9 @@ public class MagTekCardReader {
             deviceConnectionCallback.callback(false);
     }
 
-    public void connect(String name, float timeout, DeviceConnectionCallback deviceConnectionCallback) {
+    public void connect(String name, DeviceConnectionCallback deviceConnectionCallback) {
         this.deviceConnectionCallback = deviceConnectionCallback;
-        String address = this.bleController.getDeviceAddress(name);
+        String address = ble.getDeviceAddress(name);
         if (address != null) {
             lib.setAddress(address);
             lib.openDevice();
@@ -107,15 +111,12 @@ public class MagTekCardReader {
         lib.closeDevice();
     }
 
-    public void startDeviceDiscovery(long timeout, DeviceDiscoveredCallback deviceDiscoveredCallback) {
-        if (!bleController.isScanning()) {
-            bleController.toggleScan(deviceDiscoveredCallback);
-        }
+    public void startDeviceDiscovery(DeviceDiscoveredCallback deviceDiscoveredCallback) {
+        ble.startScanningForPeripherals(deviceDiscoveredCallback);
     }
 
     public void stopDeviceDiscovery() {
-        if (bleController.isScanning())
-            bleController.toggleScan(null);
+        ble.stopScanningForPeripherals();
     }
 
     public void startTransaction(String amount, DeviceTransactionCallback deviceTransactionCallback) {
@@ -160,8 +161,8 @@ public class MagTekCardReader {
     }
 
     public String getSerialNumber() {
-        String serialNumber = lib.getDeviceSerial();
-        if (debug) Log.d(TAG, "getSerialNumber: " + serialNumber);
-        return serialNumber;
+        if (!deviceConnected)
+            return "disconnected";
+        return deviceSerialNumber;
     }
 }

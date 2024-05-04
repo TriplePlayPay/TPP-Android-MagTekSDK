@@ -46,7 +46,8 @@ public enum TransactionStatus {
             if (number.code == code)
                 return number;
         }
-        throw new RuntimeException("Could not find enum with value " + code);
+        // the device can throw random shit so just silently fail with noStatus when that happens
+        return TransactionStatus.noStatus;
     }
 
     TransactionStatus(int code) { this.code = code; }

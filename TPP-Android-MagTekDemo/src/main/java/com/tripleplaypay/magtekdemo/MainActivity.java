@@ -3,6 +3,7 @@ package com.tripleplaypay.magtekdemo;
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.os.Bundle;
+import android.util.Log;
 import android.widget.Button;
 import android.widget.TextView;
 
@@ -11,6 +12,8 @@ import com.tripleplaypay.magteksdk.MagTekCardReader;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class MainActivity extends AppCompatActivity {
+
+    final static String TAG = MainActivity.class.getSimpleName();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -25,6 +28,7 @@ public class MainActivity extends AppCompatActivity {
         Button startTransactionButton = findViewById(R.id.start_transaction_button);
         startTransactionButton.setOnClickListener(view -> {
             cardReader.startTransaction("1.23", (message, event, status) -> {
+                Log.d(TAG, "startTransaction: " + event.toString() + ", " + status.toString());
                 debugText.setText(message);
             });
         });
@@ -36,7 +40,7 @@ public class MainActivity extends AppCompatActivity {
 
         Button testButton = findViewById(R.id.test_button);
         testButton.setOnClickListener(view -> {
-            cardReader.startDeviceDiscovery(10000, (name, rssi) -> {
+            cardReader.startDeviceDiscovery((name, rssi) -> {
                 deviceName.set(name);
                 debugText.setText(name);
             });
@@ -49,8 +53,13 @@ public class MainActivity extends AppCompatActivity {
 
         Button connectButton = findViewById(R.id.connect_button);
         connectButton.setOnClickListener(view -> {
-            cardReader.connect(deviceName.get(), 10000, connected -> {
-                debugText.setText(connected ? "connected" : "disconnected");
+            debugText.setText("connecting...");
+            cardReader.connect(deviceName.get(), connected -> {
+                if (connected) {
+                    debugText.setText(cardReader.getSerialNumber());
+                } else {
+                    debugText.setText("disconnected");
+                }
             });
         });
 

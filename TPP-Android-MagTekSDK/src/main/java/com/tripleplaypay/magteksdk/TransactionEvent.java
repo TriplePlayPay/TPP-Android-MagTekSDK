@@ -24,7 +24,8 @@ public enum TransactionEvent {
             if ((byte) number.code == code)
                 return number;
         }
-        throw new RuntimeException("Could not find enum with value " + code);
+        // the device can throw random shit so just silently fail with noEvent when that happens
+        return TransactionEvent.noEvents;
     }
 
     TransactionEvent(int code) {
