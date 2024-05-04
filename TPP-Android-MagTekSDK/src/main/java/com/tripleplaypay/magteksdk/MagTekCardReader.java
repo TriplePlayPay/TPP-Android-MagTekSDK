@@ -3,6 +3,7 @@ package com.tripleplaypay.magteksdk;
 import android.app.Activity;
 import android.os.Build;
 import android.os.Handler;
+import android.os.StrictMode;
 import android.util.Log;
 
 import com.magtek.mobile.android.mtlib.MTConnectionState;
@@ -11,8 +12,19 @@ import com.magtek.mobile.android.mtlib.MTSCRA;
 import com.magtek.mobile.android.mtlib.MTEMVEvent;
 import com.magtek.mobile.android.mtlib.MTSCRAEvent;
 
-import java.util.Timer;
-import java.util.TimerTask;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.ByteArrayInputStream;
+import java.io.IOError;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -34,10 +46,11 @@ public class MagTekCardReader {
     private TransactionEvent lastTransactionEvent = TransactionEvent.noEvents;
 
     private String deviceSerialNumber = "00000000000000000000000000000000";
-    boolean deviceIsConnecting = false;
-    boolean deviceConnected = false;
+    private boolean deviceIsConnecting = false;
+    private boolean deviceConnected = false;
 
-    boolean debug = false;
+    private final String apiUrl;
+    private final boolean debug;
 
     private String getTextFromBytes(byte[] data) {
         StringBuilder stringBuilder = new StringBuilder();
@@ -47,9 +60,15 @@ public class MagTekCardReader {
     }
 
     public MagTekCardReader(Activity activity, String apiKey) {
+        this(activity, apiKey, false, "https://www.tripleplaypay.com");
+    }
+
+    public MagTekCardReader(Activity activity, String apiKey, boolean debug, String debugUrl) {
         ble = new MagTekBLESupport(activity);
         this.activity = activity;
+        this.apiUrl = debugUrl;
         this.apiKey = apiKey;
+        this.debug = debug;
 
         lib = new MTSCRA(activity, new Handler(message -> {
             switch (message.what) {
@@ -75,6 +94,9 @@ public class MagTekCardReader {
                 case MTSCRAEvent.OnDeviceNotPaired:
                     deviceConnectionCallback.callback(false);
                     break;
+                case MTEMVEvent.OnARQCReceived:
+                    sendARQCRequest((byte[]) message.obj);
+                    break;
                 default:
                     break;
             }
@@ -82,6 +104,53 @@ public class MagTekCardReader {
         }));
 
         lib.setConnectionType(MTConnectionType.BLEEMVT);
+    }
+
+    private void sendARQCRequest(byte[] arqc) {
+        if (debug) Log.d(TAG, "MagTekCardReader: ARQC received");
+
+        // set strict mode (idk why, but this is required for network calls)
+        StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
+        StrictMode.setThreadPolicy(policy);
+
+        StringBuilder arqcStringBuilder = new StringBuilder();
+        String arqcHexString;
+        for (byte arqcStringByte : arqc)
+            arqcStringBuilder.append(String.format("%02X", arqcStringByte));
+        arqcHexString = arqcStringBuilder.toString();
+
+        if (debug) Log.d(TAG, "sendARQCRequest: sending payload => " + arqcHexString);
+
+        try {
+            String endpoint = apiUrl + "/api/emv";
+            if (debug) Log.d(TAG, "sendARQCRequest: URL => " + endpoint);
+
+            HttpURLConnection httpConnection = (HttpURLConnection) new URL(endpoint).openConnection();
+            httpConnection.setRequestMethod("POST");
+            httpConnection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            httpConnection.setRequestProperty("Accept", "application/json");
+            httpConnection.setRequestProperty("Authorization", apiKey);
+            httpConnection.setDoOutput(true);
+            httpConnection.setChunkedStreamingMode(0);
+
+            JSONObject json = new JSONObject();
+            json.put("payload", arqcHexString);
+
+            OutputStream outputStream = new BufferedOutputStream(httpConnection.getOutputStream());
+            outputStream.write(json.toString().getBytes());
+            outputStream.close();
+
+            InputStream inputStream = new BufferedInputStream(httpConnection.getInputStream());
+            String result = inputStream.toString();
+
+            if (debug) Log.d(TAG, "sendARQCRequest: " + result);
+        } catch (MalformedURLException exception) {
+            Log.d(TAG, "sendARQCRequest: malformed URL => " + apiUrl);
+        } catch (IOException exception) {
+            Log.d(TAG, "sendARQCRequest: error opening connection => " + exception.getMessage());
+        } catch (JSONException exception) {
+            Log.d(TAG, "sendARQCRequest: error building JSON => " + exception.getMessage());
+        }
     }
 
     private void emitDeviceConnected() {
