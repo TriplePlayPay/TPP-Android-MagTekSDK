@@ -48,17 +48,18 @@ public class MainActivity extends AppCompatActivity {
 
         Button disconnectButton = findViewById(R.id.disconnect_button);
         disconnectButton.setOnClickListener(view -> {
+            debugText.setText("disconnected");
             cardReader.disconnect();
         });
 
         Button connectButton = findViewById(R.id.connect_button);
         connectButton.setOnClickListener(view -> {
             debugText.setText("connecting...");
-            cardReader.connect(deviceName.get(), connected -> {
+            cardReader.connect(deviceName.get(), 10, connected -> {
                 if (connected) {
                     debugText.setText(cardReader.getSerialNumber());
                 } else {
-                    debugText.setText("disconnected");
+                    debugText.setText("failed to connect");
                 }
             });
         });

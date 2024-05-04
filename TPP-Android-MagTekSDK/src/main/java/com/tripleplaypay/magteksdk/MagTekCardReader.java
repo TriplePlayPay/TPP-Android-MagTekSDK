@@ -1,6 +1,7 @@
 package com.tripleplaypay.magteksdk;
+
 import android.app.Activity;
-import android.content.Context;
+import android.os.Build;
 import android.os.Handler;
 import android.util.Log;
 
@@ -9,6 +10,11 @@ import com.magtek.mobile.android.mtlib.MTConnectionType;
 import com.magtek.mobile.android.mtlib.MTSCRA;
 import com.magtek.mobile.android.mtlib.MTEMVEvent;
 import com.magtek.mobile.android.mtlib.MTSCRAEvent;
+
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 public class MagTekCardReader {
     final String TAG = MagTekCardReader.class.getSimpleName();
@@ -28,6 +34,7 @@ public class MagTekCardReader {
     private TransactionEvent lastTransactionEvent = TransactionEvent.noEvents;
 
     private String deviceSerialNumber = "00000000000000000000000000000000";
+    boolean deviceIsConnecting = false;
     boolean deviceConnected = false;
 
     boolean debug = false;
@@ -47,11 +54,13 @@ public class MagTekCardReader {
         lib = new MTSCRA(activity, new Handler(message -> {
             switch (message.what) {
                 case MTSCRAEvent.OnDeviceConnectionStateChanged:
-                    deviceConnected = message.obj == MTConnectionState.Connected;
-                    if (deviceConnected)
-                        emitDeviceConnected();
-                    else if (message.obj == MTConnectionState.Disconnected || message.obj == MTConnectionState.Error)
-                        emitDeviceDisconnected();
+                    if (deviceIsConnecting) {
+                        deviceConnected = message.obj == MTConnectionState.Connected;
+                        if (deviceConnected)
+                            emitDeviceConnected();
+                        else if (message.obj == MTConnectionState.Disconnected || message.obj == MTConnectionState.Error)
+                            emitDeviceDisconnected();
+                    }
                     break;
                 case MTEMVEvent.OnDisplayMessageRequest:
                     lastTransactionMessage = getTextFromBytes((byte[]) message.obj);
@@ -89,6 +98,8 @@ public class MagTekCardReader {
 
         if (deviceConnectionCallback != null)
             deviceConnectionCallback.callback(true);
+
+        deviceIsConnecting = false;
     }
 
     private void emitDeviceDisconnected() {
@@ -96,12 +107,21 @@ public class MagTekCardReader {
             deviceConnectionCallback.callback(false);
     }
 
-    public void connect(String name, DeviceConnectionCallback deviceConnectionCallback) {
+    public void connect(String name, long timeout, DeviceConnectionCallback deviceConnectionCallback) {
         this.deviceConnectionCallback = deviceConnectionCallback;
         String address = ble.getDeviceAddress(name);
         if (address != null) {
+            deviceIsConnecting = true;
             lib.setAddress(address);
             lib.openDevice();
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                CompletableFuture.delayedExecutor(timeout, TimeUnit.SECONDS).execute(() -> {
+                    deviceIsConnecting = false;
+                });
+            } else {
+                throw new RuntimeException("SDK version not compatible");
+            }
         } else {
             Log.d(TAG, "connect: could not find a device with name" + name);
         }
@@ -161,6 +181,7 @@ public class MagTekCardReader {
     }
 
     public String getSerialNumber() {
+        if (debug) Log.d(TAG, "getSerialNumber: called");
         if (!deviceConnected)
             return "disconnected";
         return deviceSerialNumber;
