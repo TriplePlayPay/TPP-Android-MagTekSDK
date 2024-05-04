@@ -41,11 +41,13 @@ public enum TransactionStatus {
     ;
     final int code;
 
-    public static TransactionStatus fromByte(byte code) {
-        return TransactionStatus.values()[code];
+    static public TransactionStatus fromByte(byte code) {
+        for (TransactionStatus number : TransactionStatus.values()) {
+            if (number.code == code)
+                return number;
+        }
+        throw new RuntimeException("Could not find enum with value " + code);
     }
 
-    TransactionStatus(int code) {
-        this.code = code;
-    }
+    TransactionStatus(int code) { this.code = code; }
 }
