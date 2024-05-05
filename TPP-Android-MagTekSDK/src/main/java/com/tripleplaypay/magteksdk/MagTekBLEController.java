@@ -198,8 +198,10 @@ public class MagTekBLEController {
                 lib.cancelTransaction();
             }
         } catch (IOException exception) {
+            lib.cancelTransaction();
             Log.e(TAG, "sendARQCRequest: IO error => " + exception.getMessage());
         } catch (JSONException exception) {
+            lib.cancelTransaction();
             Log.e(TAG, "sendARQCRequest: JSON error => " + exception.getMessage());
         }
     }

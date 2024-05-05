@@ -22,7 +22,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         AtomicReference<String> deviceName = new AtomicReference<>("no name");
-        MagTekCardReader cardReader = new MagTekCardReader(this, "d9f8adaf-1564-4b86-9068-8082f590e7ff", true, "http://192.168.1.153");
+        MagTekCardReader cardReader = new MagTekCardReader(this, "d9f8adaf-1564-4b86-9068-8082f590e7ff", true);
 
         TextView debugText = findViewById(R.id.debug_text);
 
