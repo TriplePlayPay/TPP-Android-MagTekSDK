@@ -27,4 +27,4 @@ TPP-Android-MagTekSDK:prepareLintJarForPublish
 ```
 
 # Documentation
-Go (here)[Docs/MagTekCardReader.md]
+Go [here](Docs/MagTekCardReader.md)
