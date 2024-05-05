@@ -1,5 +1,6 @@
 package com.tripleplaypay.magteksdk;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.os.Build;
 import android.os.Handler;
@@ -59,6 +60,13 @@ public class MagTekCardReader {
         return stringBuilder.toString();
     }
 
+    private String getARQCHexString(byte[] arqc) {
+        StringBuilder arqcStringBuilder = new StringBuilder();
+        for (byte arqcStringByte : arqc)
+            arqcStringBuilder.append(String.format("%02X", arqcStringByte));
+        return arqcStringBuilder.toString();
+    }
+
     public MagTekCardReader(Activity activity, String apiKey) {
         this(activity, apiKey, false, "https://www.tripleplaypay.com");
     }
@@ -73,23 +81,13 @@ public class MagTekCardReader {
         lib = new MTSCRA(activity, new Handler(message -> {
             switch (message.what) {
                 case MTSCRAEvent.OnDeviceConnectionStateChanged:
-                    if (deviceIsConnecting) {
-                        deviceConnected = message.obj == MTConnectionState.Connected;
-                        if (deviceConnected)
-                            emitDeviceConnected();
-                        else if (message.obj == MTConnectionState.Disconnected || message.obj == MTConnectionState.Error)
-                            emitDeviceDisconnected();
-                    }
+                    deviceConnectionStateChanged((MTConnectionState) message.obj);
                     break;
                 case MTEMVEvent.OnDisplayMessageRequest:
-                    lastTransactionMessage = getTextFromBytes((byte[]) message.obj);
-                    deviceTransactionCallback.callback(lastTransactionMessage, lastTransactionEvent, lastTransactionStatus);
+                    displayMessageRequest((byte[]) message.obj);
                     break;
                 case MTEMVEvent.OnTransactionStatus:
-                    byte[] transactionStatusInfo = (byte[]) message.obj;
-                    lastTransactionEvent = TransactionEvent.fromByte(transactionStatusInfo[0]);
-                    lastTransactionStatus = TransactionStatus.fromByte(transactionStatusInfo[2]);
-                    deviceTransactionCallback.callback(lastTransactionMessage, lastTransactionEvent, lastTransactionStatus);
+                    transactionStatus((byte[]) message.obj);
                     break;
                 case MTSCRAEvent.OnDeviceNotPaired:
                     deviceConnectionCallback.callback(false);
@@ -106,6 +104,27 @@ public class MagTekCardReader {
         lib.setConnectionType(MTConnectionType.BLEEMVT);
     }
 
+    private void deviceConnectionStateChanged(MTConnectionState connectionState) {
+        if (deviceIsConnecting) {
+            deviceConnected = connectionState == MTConnectionState.Connected;
+            if (deviceConnected)
+                emitDeviceConnected();
+            else if (connectionState == MTConnectionState.Disconnected || connectionState == MTConnectionState.Error)
+                emitDeviceDisconnected();
+        }
+    }
+
+    private void displayMessageRequest(byte[] message) {
+        lastTransactionMessage = getTextFromBytes(message);
+        deviceTransactionCallback.callback(lastTransactionMessage, lastTransactionEvent, lastTransactionStatus);
+    }
+
+    private void transactionStatus(byte[] transactionStatusInfo) {
+        lastTransactionEvent = TransactionEvent.fromByte(transactionStatusInfo[0]);
+        lastTransactionStatus = TransactionStatus.fromByte(transactionStatusInfo[2]);
+        deviceTransactionCallback.callback(lastTransactionMessage, lastTransactionEvent, lastTransactionStatus);
+    }
+
     private void sendARQCRequest(byte[] arqc) {
         if (debug) Log.d(TAG, "MagTekCardReader: ARQC received");
 
@@ -113,22 +132,19 @@ public class MagTekCardReader {
         StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
         StrictMode.setThreadPolicy(policy);
 
-        StringBuilder arqcStringBuilder = new StringBuilder();
-        String arqcHexString;
-        for (byte arqcStringByte : arqc)
-            arqcStringBuilder.append(String.format("%02X", arqcStringByte));
-        arqcHexString = arqcStringBuilder.toString();
+        String arqcHexString = getARQCHexString(arqc);
 
-        if (debug) Log.d(TAG, "sendARQCRequest: sending payload => " + arqcHexString);
+        if (debug) Log.d(TAG, "sendARQCRequest: " + arqcHexString);
 
         try {
             String endpoint = apiUrl + "/api/emv";
             if (debug) Log.d(TAG, "sendARQCRequest: URL => " + endpoint);
 
+            byte[] responseBuffer = new byte[4096];
+
             HttpURLConnection httpConnection = (HttpURLConnection) new URL(endpoint).openConnection();
             httpConnection.setRequestMethod("POST");
-            httpConnection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-            httpConnection.setRequestProperty("Accept", "application/json");
+            httpConnection.setRequestProperty("Content-Type", "application/json");
             httpConnection.setRequestProperty("Authorization", apiKey);
             httpConnection.setDoOutput(true);
             httpConnection.setChunkedStreamingMode(0);
@@ -141,9 +157,13 @@ public class MagTekCardReader {
             outputStream.close();
 
             InputStream inputStream = new BufferedInputStream(httpConnection.getInputStream());
-            String result = inputStream.toString();
+            if (inputStream.read(responseBuffer) >= 0) {
+                String jsonString = getTextFromBytes(responseBuffer);
+                if (debug) Log.d(TAG, "sendARQCRequest: " + jsonString);
+            } else {
+                if (debug) Log.d(TAG, "sendARQCRequest: failed to read from input stream");
+            }
 
-            if (debug) Log.d(TAG, "sendARQCRequest: " + result);
         } catch (MalformedURLException exception) {
             Log.d(TAG, "sendARQCRequest: malformed URL => " + apiUrl);
         } catch (IOException exception) {
@@ -179,6 +199,7 @@ public class MagTekCardReader {
     public void connect(String name, long timeout, DeviceConnectionCallback deviceConnectionCallback) {
         this.deviceConnectionCallback = deviceConnectionCallback;
         String address = ble.getDeviceAddress(name);
+
         if (address != null) {
             deviceIsConnecting = true;
             lib.setAddress(address);
@@ -186,35 +207,43 @@ public class MagTekCardReader {
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 CompletableFuture.delayedExecutor(timeout, TimeUnit.SECONDS).execute(() -> {
+                    if (!deviceConnected) { // trigger the callback if timeout triggers
+                        deviceConnectionCallback.callback(false);
+                        lib.closeDevice(); // make sure to cancel connection attempt
+                    }
                     deviceIsConnecting = false;
                 });
             } else {
                 throw new RuntimeException("SDK version not compatible");
             }
         } else {
-            Log.d(TAG, "connect: could not find a device with name" + name);
+            Log.d(TAG, "connect: could not find a device with name: " + name);
         }
     }
 
     public void disconnect() {
+        if (debug) Log.d(TAG, "disconnect: called");
         lib.closeDevice();
     }
 
     public void startDeviceDiscovery(DeviceDiscoveredCallback deviceDiscoveredCallback) {
+        if (debug) Log.d(TAG, "startDeviceDiscovery: called");
         ble.startScanningForPeripherals(deviceDiscoveredCallback);
     }
 
     public void stopDeviceDiscovery() {
+        if (debug) Log.d(TAG, "stopDeviceDiscovery: called");
         ble.stopScanningForPeripherals();
     }
 
+    @SuppressLint("DefaultLocale")
     public void startTransaction(String amount, DeviceTransactionCallback deviceTransactionCallback) {
         if (debug) Log.d(TAG, "startTransaction: called with amount $" + amount);
 
         this.deviceTransactionCallback = deviceTransactionCallback;
 
-        String n12format = String.format("%12.0f", Float.parseFloat(amount) * 100);
         byte[] amountBytes = new byte[6];
+        String n12format = String.format("%12.0f", Float.parseFloat(amount) * 100);
 
         int amountBytesIndex = 0;
         for (int i = 1; i < 12; i+=2) {
@@ -245,8 +274,8 @@ public class MagTekCardReader {
     }
 
     public void cancelTransaction() {
-        lib.cancelTransaction();
         if (debug) Log.d(TAG, "cancelTransaction: called");
+        lib.cancelTransaction();
     }
 
     public String getSerialNumber() {
