@@ -89,9 +89,6 @@ public class MagTekCardReader {
                 case MTEMVEvent.OnTransactionStatus:
                     transactionStatus((byte[]) message.obj);
                     break;
-                case MTSCRAEvent.OnDeviceNotPaired:
-                    deviceConnectionCallback.callback(false);
-                    break;
                 case MTEMVEvent.OnARQCReceived:
                     sendARQCRequest((byte[]) message.obj);
                     break;
@@ -254,21 +251,14 @@ public class MagTekCardReader {
                 amountBytes[amountBytesIndex++] = (byte) Integer.parseInt(stringByte, 16);
         }
 
-        Log.d(TAG, "startTransaction: " + n12format);
-        Log.d(TAG, "startTransaction: " + amountBytes[5]);
-
-
-        byte[] cashBack = { 0, 0, 0, 0, 0, 0 };
-        byte[] currency = { 0x08, 0x40 };
-
-        this.lib.startTransaction(
+        lib.startTransaction(
                 (byte) 0x3c,
                 (byte) 7,
                 (byte) 0,
                 amountBytes,
                 (byte) 0,
-                cashBack,
-                currency,
+                new byte[] { 0, 0, 0, 0, 0, 0 },
+                new byte[] { 0x08, 0x40 },
                 (byte) 0x02
         );
     }
