@@ -2,6 +2,7 @@ package com.tripleplaypay.magteksdk;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.net.http.HttpException;
 import android.os.Build;
 import android.os.Handler;
 import android.os.StrictMode;
@@ -32,7 +33,6 @@ import java.util.concurrent.TimeUnit;
 public class MagTekCardReader {
     final String TAG = MagTekCardReader.class.getSimpleName();
 
-    private final Activity activity;
     private final String apiKey;
 
     private final MTSCRA lib;
@@ -42,6 +42,7 @@ public class MagTekCardReader {
     private DeviceConnectionCallback deviceConnectionCallback;
     private DeviceTransactionCallback deviceTransactionCallback;
 
+    private boolean lastApprovalValue = false;
     private String lastTransactionMessage = "NO MESSAGE";
     private TransactionStatus lastTransactionStatus = TransactionStatus.noStatus;
     private TransactionEvent lastTransactionEvent = TransactionEvent.noEvents;
@@ -50,30 +51,48 @@ public class MagTekCardReader {
     private boolean deviceIsConnecting = false;
     private boolean deviceConnected = false;
 
+    private final String apiUrlEndpoint = "/api/emv";
     private final String apiUrl;
     private final boolean debug;
 
     private String getTextFromBytes(byte[] data) {
         StringBuilder stringBuilder = new StringBuilder();
-        for (byte datum : data)
+        for (byte datum : data) {
+            if (datum == 0)
+                break;
             stringBuilder.append(String.format("%c", datum));
+        }
         return stringBuilder.toString();
     }
 
-    private String getARQCHexString(byte[] arqc) {
-        StringBuilder arqcStringBuilder = new StringBuilder();
-        for (byte arqcStringByte : arqc)
-            arqcStringBuilder.append(String.format("%02X", arqcStringByte));
-        return arqcStringBuilder.toString();
+    @SuppressLint("DefaultLocale")
+    private byte[] getBytes(String hexString) {
+        byte[] bytes = new byte[hexString.length() / 2];
+        int bytesIndex = 0;
+        for (int i = 1; i < hexString.length(); i+=2) {
+            byte parsedByte = Byte.parseByte(hexString.substring(i - 1, i), 16);
+            bytes[bytesIndex++] = parsedByte;
+        }
+        return bytes;
+    }
+
+    private String getHexString(byte[] bytes) {
+        StringBuilder stringBuilder = new StringBuilder();
+        for (byte stringByte : bytes)
+            stringBuilder.append(String.format("%02X", stringByte));
+        return stringBuilder.toString();
     }
 
     public MagTekCardReader(Activity activity, String apiKey) {
         this(activity, apiKey, false, "https://www.tripleplaypay.com");
     }
 
+    public MagTekCardReader(Activity activity, String apiKey, boolean debug) {
+        this(activity, apiKey, debug, "https://www.tripleplaypay.com");
+    }
+
     public MagTekCardReader(Activity activity, String apiKey, boolean debug, String debugUrl) {
         ble = new MagTekBLESupport(activity);
-        this.activity = activity;
         this.apiUrl = debugUrl;
         this.apiKey = apiKey;
         this.debug = debug;
@@ -92,7 +111,7 @@ public class MagTekCardReader {
                 case MTEMVEvent.OnARQCReceived:
                     sendARQCRequest((byte[]) message.obj);
                     break;
-                default:
+                case MTEMVEvent.OnTransactionResult:
                     break;
             }
             return true;
@@ -113,6 +132,13 @@ public class MagTekCardReader {
 
     private void displayMessageRequest(byte[] message) {
         lastTransactionMessage = getTextFromBytes(message);
+        if (lastTransactionMessage.equals("TRANSACTION TERMINATED")) { // this means ARQC was passed in
+            if (lastApprovalValue) {
+                lastApprovalValue = false; // if this gets called it means the user was notified, reset the value
+                lastTransactionMessage = "APPROVED";
+            } else
+                lastTransactionMessage = "DECLINED";
+        }
         deviceTransactionCallback.callback(lastTransactionMessage, lastTransactionEvent, lastTransactionStatus);
     }
 
@@ -122,51 +148,69 @@ public class MagTekCardReader {
         deviceTransactionCallback.callback(lastTransactionMessage, lastTransactionEvent, lastTransactionStatus);
     }
 
+    private HttpURLConnection openHttpConnection(String url) throws IOException {
+        HttpURLConnection httpConnection = (HttpURLConnection) new URL(url).openConnection();
+        httpConnection.setRequestMethod("POST");
+        httpConnection.setRequestProperty("Content-Type", "application/json");
+        httpConnection.setRequestProperty("Authorization", apiKey);
+        httpConnection.setDoOutput(true);
+        httpConnection.setChunkedStreamingMode(0);
+        return httpConnection;
+    }
+
+    private JSONObject loadJSONPayload(String arqcHexString) throws JSONException {
+        JSONObject jsonObject = new JSONObject();
+        jsonObject.put("payload", arqcHexString);
+        return jsonObject;
+    }
+
+    private JSONObject sendHttpRequest(HttpURLConnection httpConnection, String arqcHexString) throws IOException, JSONException {
+        JSONObject requestObject = loadJSONPayload(arqcHexString);
+        byte[] responseBuffer = new byte[4096]; // give 4KiB max
+
+        OutputStream outputStream = new BufferedOutputStream(httpConnection.getOutputStream());
+        outputStream.write(requestObject.toString().getBytes());
+        outputStream.close();
+
+        InputStream inputStream = new BufferedInputStream(httpConnection.getInputStream());
+        if (inputStream.read(responseBuffer) < 0)
+            throw new IOException("Could not read from inputStream");
+
+        return new JSONObject(getTextFromBytes(responseBuffer));
+    }
+
     private void sendARQCRequest(byte[] arqc) {
-        if (debug) Log.d(TAG, "MagTekCardReader: ARQC received");
+        if (debug) Log.d(TAG, "sendARQCRequest: URL => " + apiUrl);
 
         // set strict mode (idk why, but this is required for network calls)
         StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
         StrictMode.setThreadPolicy(policy);
 
-        String arqcHexString = getARQCHexString(arqc);
+        String arqcHexString = getHexString(arqc);
 
-        if (debug) Log.d(TAG, "sendARQCRequest: " + arqcHexString);
+        if (debug) Log.d(TAG, "sendARQCRequest: ARQC => " + arqcHexString);
 
         try {
-            String endpoint = apiUrl + "/api/emv";
-            if (debug) Log.d(TAG, "sendARQCRequest: URL => " + endpoint);
+            HttpURLConnection httpConnection = openHttpConnection(apiUrl + apiUrlEndpoint);
+            JSONObject responseObject = sendHttpRequest(httpConnection, arqcHexString);
 
-            byte[] responseBuffer = new byte[4096];
+            if (responseObject.getBoolean("status")) {
+                JSONObject message = responseObject.getJSONObject("message");
 
-            HttpURLConnection httpConnection = (HttpURLConnection) new URL(endpoint).openConnection();
-            httpConnection.setRequestMethod("POST");
-            httpConnection.setRequestProperty("Content-Type", "application/json");
-            httpConnection.setRequestProperty("Authorization", apiKey);
-            httpConnection.setDoOutput(true);
-            httpConnection.setChunkedStreamingMode(0);
+                byte[] arpc = getBytes(message.getString("arpc"));
+                lastApprovalValue = message.getBoolean("approved");
 
-            JSONObject json = new JSONObject();
-            json.put("payload", arqcHexString);
+                if (debug) Log.i(TAG, "sendARQCRequest: " + getHexString(arpc));
 
-            OutputStream outputStream = new BufferedOutputStream(httpConnection.getOutputStream());
-            outputStream.write(json.toString().getBytes());
-            outputStream.close();
-
-            InputStream inputStream = new BufferedInputStream(httpConnection.getInputStream());
-            if (inputStream.read(responseBuffer) >= 0) {
-                String jsonString = getTextFromBytes(responseBuffer);
-                if (debug) Log.d(TAG, "sendARQCRequest: " + jsonString);
+                lib.setAcquirerResponse(arpc);
             } else {
-                if (debug) Log.d(TAG, "sendARQCRequest: failed to read from input stream");
+                Log.e(TAG, "sendARQCRequest: API error => " + responseObject.getString("error"));
+                lib.cancelTransaction();
             }
-
-        } catch (MalformedURLException exception) {
-            Log.d(TAG, "sendARQCRequest: malformed URL => " + apiUrl);
         } catch (IOException exception) {
-            Log.d(TAG, "sendARQCRequest: error opening connection => " + exception.getMessage());
+            Log.e(TAG, "sendARQCRequest: IO error => " + exception.getMessage());
         } catch (JSONException exception) {
-            Log.d(TAG, "sendARQCRequest: error building JSON => " + exception.getMessage());
+            Log.e(TAG, "sendARQCRequest: JSON error => " + exception.getMessage());
         }
     }
 
