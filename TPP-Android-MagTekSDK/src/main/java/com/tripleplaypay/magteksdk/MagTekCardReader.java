@@ -27,7 +27,7 @@ public class MagTekCardReader {
         bleController.cancelDeviceDiscovery();
     }
 
-    public void connect(String deviceName, long timeoutSeconds, DeviceConnectionCallback deviceConnectionCallback) {
+    public void connect(String deviceName, int timeoutSeconds, DeviceConnectionCallback deviceConnectionCallback) {
         bleController.deviceConnectionCallback = deviceConnectionCallback;
         bleController.connect(deviceName, timeoutSeconds);
     }

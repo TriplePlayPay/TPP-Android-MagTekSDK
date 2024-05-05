@@ -25,3 +25,6 @@ TPP-Android-MagTekSDK:publishToMavenLocal - Publishes all Maven publications pro
 TPP-Android-MagTekDemo:prepareLintJarForPublish
 TPP-Android-MagTekSDK:prepareLintJarForPublish
 ```
+
+# Documentation
+Go (here)[Docs/MagTekCardReader.md]

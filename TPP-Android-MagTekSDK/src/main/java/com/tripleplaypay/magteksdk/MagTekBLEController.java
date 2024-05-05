@@ -219,7 +219,7 @@ public class MagTekBLEController {
             deviceConnectionCallback.onDeviceConnection(false);
     }
 
-    public void connect(String name, long timeout) {
+    public void connect(String name, int timeout) {
         String address = ble.getDeviceAddress(name);
 
         if (address != null) {
