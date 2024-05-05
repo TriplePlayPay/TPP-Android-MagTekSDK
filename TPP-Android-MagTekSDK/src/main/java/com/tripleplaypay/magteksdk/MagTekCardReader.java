@@ -70,7 +70,7 @@ public class MagTekCardReader {
         byte[] bytes = new byte[hexString.length() / 2];
         int bytesIndex = 0;
         for (int i = 1; i < hexString.length(); i+=2) {
-            byte parsedByte = Byte.parseByte(hexString.substring(i - 1, i), 16);
+            byte parsedByte = Byte.parseByte(hexString.substring(i - 1, i + 1), 16);
             bytes[bytesIndex++] = parsedByte;
         }
         return bytes;
@@ -284,15 +284,22 @@ public class MagTekCardReader {
         this.deviceTransactionCallback = deviceTransactionCallback;
 
         byte[] amountBytes = new byte[6];
-        String n12format = String.format("%12.0f", Float.parseFloat(amount) * 100);
+        String n12format = String.format("%012.0f", Float.parseFloat(amount) * 100);
+
+        if (debug) Log.d(TAG, "startTransaction: " + n12format);
 
         int amountBytesIndex = 0;
         for (int i = 1; i < 12; i+=2) {
-            String stringByte = n12format.substring(i-1, i).strip();
+            String stringByte = n12format.substring(i - 1, i + 1).strip();
+            System.out.println(stringByte);
             if (stringByte.isEmpty())
                 amountBytes[amountBytesIndex++] = 0;
             else
-                amountBytes[amountBytesIndex++] = (byte) Integer.parseInt(stringByte, 16);
+                amountBytes[amountBytesIndex++] = Byte.parseByte(stringByte, 16);
+        }
+
+        for (byte amountByte : amountBytes) {
+            System.out.println(amountByte);
         }
 
         lib.startTransaction(
