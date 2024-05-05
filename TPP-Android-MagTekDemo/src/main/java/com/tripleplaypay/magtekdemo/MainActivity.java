@@ -7,6 +7,7 @@ import android.util.Log;
 import android.widget.Button;
 import android.widget.TextView;
 
+import com.tripleplaypay.magteksdk.MagTekBLEController;
 import com.tripleplaypay.magteksdk.MagTekCardReader;
 
 import java.util.concurrent.atomic.AtomicReference;
@@ -66,7 +67,7 @@ public class MainActivity extends AppCompatActivity {
 
         Button testCancelButton = findViewById(R.id.test_cancel_button);
         testCancelButton.setOnClickListener(view -> {
-            cardReader.stopDeviceDiscovery();
+            cardReader.cancelDeviceDiscovery();
         });
     }
 }

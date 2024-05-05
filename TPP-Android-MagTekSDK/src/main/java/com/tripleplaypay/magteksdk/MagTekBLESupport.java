@@ -20,9 +20,10 @@ import java.util.Hashtable;
 public class MagTekBLESupport {
     static final String TAG = MagTekBLESupport.class.getSimpleName();
 
-    Hashtable<String, BluetoothDevice> devices = new Hashtable<>();
-    DeviceDiscoveredCallback deviceDiscoveredCallback;
-    Activity activity;
+    private final Hashtable<String, BluetoothDevice> devices = new Hashtable<>();
+    private final Activity activity;
+
+    private DeviceDiscoveredCallback deviceDiscoveredCallback;
 
     final ScanCallback scanCallback = new ScanCallback() {
         @SuppressLint("MissingPermission")
@@ -42,7 +43,7 @@ public class MagTekBLESupport {
                 Log.i(TAG, String.format("found device: %s: %d", name, result.getRssi()));
                 devices.put(name, device);
                 if (deviceDiscoveredCallback != null)
-                    deviceDiscoveredCallback.callback(name, result.getRssi());
+                    deviceDiscoveredCallback.onDeviceDiscovered(name, result.getRssi());
             }
         }
     };
