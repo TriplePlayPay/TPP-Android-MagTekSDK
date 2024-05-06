@@ -4,7 +4,7 @@ plugins {
 }
 
 def namespaceName = 'com.tripleplaypay.magteksdk'
-version = '0.6.0-rc.1'
+version = '0.6.0'
 
 android {
     namespace 'com.tripleplaypay.magteksdk'
@@ -43,6 +43,17 @@ dependencies {
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }
 
+static def thing(XmlProvider xml) {
+    ((xml.asNode().get('dependencies') as NodeList).getAt(0) as Node).with {
+        (appendNode 'dependency').with {
+            appendNode 'groupId', 'com.tripleplaypay.magteksdk.magtek'
+            appendNode 'artifactId', 'mt-scra'
+            appendNode 'version', '99510109.1'
+            appendNode 'scope', 'compile'
+        }
+    }
+}
+
 publishing {
     publications {
         release(MavenPublication) {
@@ -53,6 +64,7 @@ publishing {
             afterEvaluate {
                 from components.release
             }
+            pom.withXml { thing(it) }
         }
         debug(MavenPublication) {
             groupId = namespaceName
@@ -62,6 +74,7 @@ publishing {
             afterEvaluate {
                 from components.debug
             }
+            pom.withXml { thing(it) }
         }
     }
 
