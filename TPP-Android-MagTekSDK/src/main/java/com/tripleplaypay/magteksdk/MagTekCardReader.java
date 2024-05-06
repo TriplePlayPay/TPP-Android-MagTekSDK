@@ -6,7 +6,8 @@ public class MagTekCardReader {
     MagTekBLEController bleController;
 
     public MagTekCardReader(Activity activity, String apiKey, boolean debug, String debugUrl) {
-        bleController = new MagTekBLEController(activity, apiKey, debug, debugUrl);
+        bleController = new MagTekBLEController(activity, apiKey, debugUrl);
+        bleController.setDebug(debug);
     }
 
     public MagTekCardReader(Activity activity, String apiKey, boolean debug) {

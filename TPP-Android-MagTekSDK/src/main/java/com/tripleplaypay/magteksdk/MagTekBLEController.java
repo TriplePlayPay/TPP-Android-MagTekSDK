@@ -2,12 +2,12 @@ package com.tripleplaypay.magteksdk;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.bluetooth.BluetoothDevice;
 import android.os.Build;
 import android.os.Handler;
 import android.os.StrictMode;
 import android.util.Log;
 
+import com.magtek.mobile.android.mtlib.MTBaseService;
 import com.magtek.mobile.android.mtlib.MTConnectionState;
 import com.magtek.mobile.android.mtlib.MTConnectionType;
 import com.magtek.mobile.android.mtlib.MTSCRA;
@@ -24,12 +24,12 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.Hashtable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 public class MagTekBLEController {
-    final String TAG = MagTekBLEController.class.getSimpleName();
+    final String publicMethodTag = MagTekBLEController.class.getSimpleName();
+    final String mtscraMethodTag = "MTSCRA";
 
     // Helper objects
     private final MagTekBLESupport ble;
@@ -37,9 +37,10 @@ public class MagTekBLEController {
 
     // Constants
     private final String apiUrlEndpoint = "/api/emv";
+    private boolean debug = false;
+
     private final String apiUrl;
     private final String apiKey;
-    private final boolean debug;
 
     // Callback refs
     public DeviceDiscoveredCallback deviceDiscoveredCallback;
@@ -55,6 +56,94 @@ public class MagTekBLEController {
     private boolean deviceIsConnecting = false;
     private boolean deviceIsConnected = false;
 
+    /* Initialize:
+     * activity: Activity
+     *  the activity from the parent UI object. needed for bluetooth permission dialogs + MTSCRA
+     * apiKey: String
+     *  needs an API key to communicate with Triple Play Pay
+     * apiUrl: String
+     *  needs to know which Triple Play Pay API to query
+     */
+
+    public MagTekBLEController(Activity activity, String apiKey, String debugUrl) {
+        this.apiUrl = debugUrl;
+        this.apiKey = apiKey;
+
+        ble = new MagTekBLESupport(activity); // BLE helper needed for Android
+        lib = new MTSCRA(activity, new Handler(message -> {
+            switch (message.what) {
+                case MTSCRAEvent.OnDeviceConnectionStateChanged:
+                    onDeviceConnectionStateChanged((MTConnectionState) message.obj);
+                    break;
+                case MTEMVEvent.OnDisplayMessageRequest:
+                    onDisplayMessageRequest((byte[]) message.obj);
+                    break;
+                case MTEMVEvent.OnTransactionStatus:
+                    onTransactionStatus((byte[]) message.obj);
+                    break;
+                case MTEMVEvent.OnARQCReceived:
+                    onARQCReceived((byte[]) message.obj);
+                    break;
+            }
+            return true;
+        }));
+
+        // NOTE: setDeviceType is missing from the Android MTSCRA
+        lib.setConnectionType(MTConnectionType.BLEEMVT);
+    }
+
+    /* Private functions for simple processes
+     * - debugPrint (tag: String, message: String) -> prints a debug message to STDOUT. Takes a tag argument for better organization
+     * - emitDeviceIsConnected () -> should get called when the device is determined to be connected; Configures the device
+     * - emitDeviceDisconnected () -> should get called when the device has been disconnected
+     * - hexStringBytes (string: String): byte[] -> needed to parse response from Triple Play Pay API and pass to aquirerResponse. also useful for parsing data from device
+     * - dataToHexString (data: byte[]): String -> inversion of the above method
+     * - getTextFromBytes (data: byte[]): String -> converts a byte array into a UTF-8 string
+     * - n12Bytes (amount: String): byte[] -> converts dollar amount string into n12 byte array
+     * - openHttpConnection (url: String) -> opens an HTTP(S) connection to the url, sets POST + JSON options + API key
+     * - loadJSONPayload (arqcHexString: String) -> creates a JSON object to send over the HTTP(S) connection
+     * - sendHttpRequest (request: HttpUrlConnection, String arqcHexString) -> sends the ARQC in a JSON payload using the created request
+     */
+
+    private void debugPrint(String tag, String message) {
+        if (debug) Log.d(tag, message);
+    }
+
+    private void emitDeviceConnected() {
+        lib.clearBuffers(); // reset device
+        deviceSerialNumber = lib.getDeviceSerial();
+        lib.sendCommandToDevice("580101"); // set MSR
+        lib.sendCommandToDevice("480101"); // set BLE
+        if (deviceConnectionCallback != null)
+            deviceConnectionCallback.onDeviceConnection(true);
+        deviceIsConnecting = false;
+    }
+
+    private void emitDeviceDisconnected() {
+        if (deviceConnectionCallback != null)
+            deviceConnectionCallback.onDeviceConnection(false);
+        deviceIsConnecting = false;
+    }
+
+    @SuppressLint("DefaultLocale")
+    private byte[] hexStringBytes(String hexString) {
+        int length = hexString.length();
+        byte[] bytes = new byte[length / 2];
+        int bytesIndex = 0;
+        for (int i = 1; i < length; i+=2) {
+            byte parsedByte = (byte) (Integer.parseInt(hexString.substring(i - 1, i + 1), 16) & 0xff);
+            bytes[bytesIndex++] = parsedByte;
+        }
+        return bytes;
+    }
+
+    private String dataToHexString(byte[] bytes) {
+        StringBuilder stringBuilder = new StringBuilder();
+        for (byte stringByte : bytes)
+            stringBuilder.append(String.format("%02X", stringByte));
+        return stringBuilder.toString();
+    }
+
     private String getTextFromBytes(byte[] data) {
         StringBuilder stringBuilder = new StringBuilder();
         for (byte datum : data) {
@@ -66,76 +155,9 @@ public class MagTekBLEController {
     }
 
     @SuppressLint("DefaultLocale")
-    private byte[] getBytes(String hexString) {
-        byte[] bytes = new byte[hexString.length() / 2];
-        int bytesIndex = 0;
-        for (int i = 1; i < hexString.length(); i+=2) {
-            byte parsedByte = (byte) (Integer.parseInt(hexString.substring(i - 1, i + 1), 16) & 0xff);
-            bytes[bytesIndex++] = parsedByte;
-        }
-        return bytes;
-    }
-
-    private String getHexString(byte[] bytes) {
-        StringBuilder stringBuilder = new StringBuilder();
-        for (byte stringByte : bytes)
-            stringBuilder.append(String.format("%02X", stringByte));
-        return stringBuilder.toString();
-    }
-
-    public MagTekBLEController(Activity activity, String apiKey, boolean debug, String debugUrl) {
-        ble = new MagTekBLESupport(activity);
-        this.apiUrl = debugUrl;
-        this.apiKey = apiKey;
-        this.debug = debug;
-
-        lib = new MTSCRA(activity, new Handler(message -> {
-            switch (message.what) {
-                case MTSCRAEvent.OnDeviceConnectionStateChanged:
-                    deviceConnectionStateChanged((MTConnectionState) message.obj);
-                    break;
-                case MTEMVEvent.OnDisplayMessageRequest:
-                    displayMessageRequest((byte[]) message.obj);
-                    break;
-                case MTEMVEvent.OnTransactionStatus:
-                    transactionStatus((byte[]) message.obj);
-                    break;
-                case MTEMVEvent.OnARQCReceived:
-                    sendARQCRequest((byte[]) message.obj);
-                    break;
-            }
-            return true;
-        }));
-
-        lib.setConnectionType(MTConnectionType.BLEEMVT);
-    }
-
-    private void deviceConnectionStateChanged(MTConnectionState connectionState) {
-        if (deviceIsConnecting) {
-            deviceIsConnected = connectionState == MTConnectionState.Connected;
-            if (deviceIsConnected)
-                emitDeviceConnected();
-            else if (connectionState == MTConnectionState.Disconnected || connectionState == MTConnectionState.Error)
-                emitDeviceDisconnected();
-        }
-    }
-
-    private void displayMessageRequest(byte[] message) {
-        lastTransactionMessage = getTextFromBytes(message);
-        if (lastTransactionMessage.equals("TRANSACTION TERMINATED")) { // this means ARQC was passed in
-            if (lastApprovalValue) {
-                lastApprovalValue = false; // if this gets called it means the user was notified, reset the value
-                lastTransactionMessage = "APPROVED";
-            } else
-                lastTransactionMessage = "DECLINED";
-        }
-        deviceTransactionCallback.onDeviceTransactionInfo(lastTransactionMessage, lastTransactionEvent, lastTransactionStatus);
-    }
-
-    private void transactionStatus(byte[] transactionStatusInfo) {
-        lastTransactionEvent = TransactionEvent.fromByte(transactionStatusInfo[0]);
-        lastTransactionStatus = TransactionStatus.fromByte(transactionStatusInfo[2]);
-        deviceTransactionCallback.onDeviceTransactionInfo(lastTransactionMessage, lastTransactionEvent, lastTransactionStatus);
+    private byte[] n12Bytes(String amount) {
+        String formattedString = String.format("%012.0f", Double.parseDouble(amount) * 100.0);
+        return hexStringBytes(formattedString);
     }
 
     private HttpURLConnection openHttpConnection(String url) throws IOException {
@@ -154,135 +176,178 @@ public class MagTekBLEController {
         return jsonObject;
     }
 
-    private JSONObject sendHttpRequest(HttpURLConnection httpConnection, String arqcHexString) throws IOException, JSONException {
+    private JSONObject sendHttpRequest(HttpURLConnection request, String arqcHexString) throws IOException, JSONException {
         JSONObject requestObject = loadJSONPayload(arqcHexString);
         byte[] responseBuffer = new byte[4096]; // give 4KiB max
 
-        OutputStream outputStream = new BufferedOutputStream(httpConnection.getOutputStream());
+        OutputStream outputStream = new BufferedOutputStream(request.getOutputStream());
         outputStream.write(requestObject.toString().getBytes());
         outputStream.close();
 
-        InputStream inputStream = new BufferedInputStream(httpConnection.getInputStream());
+        InputStream inputStream = new BufferedInputStream(request.getInputStream());
         if (inputStream.read(responseBuffer) < 0)
             throw new IOException("Could not read from inputStream");
 
         return new JSONObject(getTextFromBytes(responseBuffer));
     }
 
-    private void sendARQCRequest(byte[] arqc) {
-        if (debug) Log.d(TAG, "sendARQCRequest: URL => " + apiUrl);
+    /* Callback functions for MTSCRA. These are called when an event happens ON THE DEVICE
+     *  - onDeviceConnectionStateChanged(state: MTConnectionState) -> `state` can be Connected, Connecting, Disconnected, Disconnecting, Error.
+     *  - onTransactionStatus (data: byte[]) -> `data` is a byte buffer containing the current transaction status and event
+     *  - onDisplayRequestMethod (data: byte[]) -> `data` is a byte buffer that can be translated to a UTF-8 string. This is a message from the device to the cardholder
+     *  - onARQCReceived (data: byte[]) -> `data` is a byte buffer from the device of the encrypted ARQC data to be processed by the Triple Play Pay API
+     */
+
+    private void onDeviceConnectionStateChanged(MTConnectionState state) {
+        debugPrint(mtscraMethodTag, "deviceConnectionStateChanged called");
+        if (deviceIsConnecting) {
+            deviceIsConnected = state == MTConnectionState.Connected;
+            if (deviceIsConnected)
+                emitDeviceConnected();
+            else if (state == MTConnectionState.Disconnected || state == MTConnectionState.Error)
+                emitDeviceDisconnected();
+        }
+    }
+
+    private void onTransactionStatus(byte[] data) {
+        lastTransactionEvent = TransactionEvent.fromByte(data[0]);
+        lastTransactionStatus = TransactionStatus.fromByte(data[2]);
+        debugPrint(mtscraMethodTag, "transactionStatus called");
+        if (deviceTransactionCallback != null)
+            deviceTransactionCallback.onDeviceTransactionInfo(lastTransactionMessage, lastTransactionEvent, lastTransactionStatus);
+    }
+
+    private void onDisplayMessageRequest(byte[] data) {
+        lastTransactionMessage = getTextFromBytes(data);
+        if (lastTransactionMessage.equals("TRANSACTION TERMINATED")) { // this means ARQC was passed in
+            if (lastApprovalValue) {
+                lastApprovalValue = false; // if this gets called it means the user was notified, reset the value
+                lastTransactionMessage = "APPROVED";
+            } else
+                lastTransactionMessage = "DECLINED";
+        }
+        debugPrint(mtscraMethodTag, "displayMessageRequest called");
+        if (deviceTransactionCallback != null)
+            deviceTransactionCallback.onDeviceTransactionInfo(lastTransactionMessage, lastTransactionEvent, lastTransactionStatus);
+    }
+
+    private void onARQCReceived(byte[] data) {
+        debugPrint(mtscraMethodTag, "sendARQCRequest: URL => " + apiUrl);
 
         // set strict mode (idk why, but this is required for network calls)
         StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
         StrictMode.setThreadPolicy(policy);
 
-        String arqcHexString = getHexString(arqc);
+        String arqcHexString = dataToHexString(data);
 
-        if (debug) Log.d(TAG, "sendARQCRequest: ARQC => " + arqcHexString);
-
+        debugPrint(mtscraMethodTag, "sendARQCRequest: ARQC => " + arqcHexString);
         try {
-            HttpURLConnection httpConnection = openHttpConnection(apiUrl + apiUrlEndpoint);
-            JSONObject responseObject = sendHttpRequest(httpConnection, arqcHexString);
+            HttpURLConnection request = openHttpConnection(apiUrl + apiUrlEndpoint);
+            JSONObject responseObject = sendHttpRequest(request, arqcHexString);
 
             if (responseObject.getBoolean("status")) {
                 JSONObject message = responseObject.getJSONObject("message");
 
-                byte[] arpc = getBytes(message.getString("arpc"));
+                byte[] arpcData = hexStringBytes(message.getString("arpc"));
                 lastApprovalValue = message.getBoolean("approved");
 
-                if (debug) Log.i(TAG, "sendARQCRequest: " + getHexString(arpc));
+                debugPrint(mtscraMethodTag, "sendARQCRequest: " + dataToHexString(arpcData));
 
-                lib.setAcquirerResponse(arpc);
+                lib.setAcquirerResponse(arpcData);
             } else {
-                Log.e(TAG, "sendARQCRequest: API error => " + responseObject.getString("error"));
+                Log.e(mtscraMethodTag, "sendARQCRequest: API error => " + responseObject.getString("error"));
                 lib.cancelTransaction();
             }
         } catch (IOException exception) {
             lib.cancelTransaction();
-            Log.e(TAG, "sendARQCRequest: IO error => " + exception.getMessage());
+            Log.e(mtscraMethodTag, "sendARQCRequest: IO error => " + exception.getMessage());
         } catch (JSONException exception) {
             lib.cancelTransaction();
-            Log.e(TAG, "sendARQCRequest: JSON error => " + exception.getMessage());
+            Log.e(mtscraMethodTag, "sendARQCRequest: JSON error => " + exception.getMessage());
         }
     }
 
-    private void emitDeviceConnected() {
-        lib.clearBuffers(); // reset device
-        deviceSerialNumber = lib.getDeviceSerial();
-        lib.sendCommandToDevice("580101"); // set MSR
-        lib.sendCommandToDevice("480101"); // set BLE
-        if (deviceConnectionCallback != null)
-            deviceConnectionCallback.onDeviceConnection(true);
-        deviceIsConnecting = false;
+    /* Public functions for MagTekCardReader
+     * General:
+     *  - isConnected (): boolean -> gives the current connection state
+     *  - getSerialNumber (): String -> gets the serial number of the device
+     *  - setDebug (debug: boolean) -> sets the MTSCRA and TPP debug print statements to go to stdout
+     * Discovery:
+     *  - startDeviceDiscovery () -> tells the phone to begin a bluetooth LE device scan
+     *  - cancelDeviceDiscovery () -> tells the phone to stop scanning for LE devices
+     * Connection:
+     *  - connect (name: String, timeout: int) -> tells the phone to connect to the device with `name` and
+                                                            cancel itself after `timeout` seconds have passed
+     *  - disconnect () -> tells the phone to stop attempting to connect
+     * Transactions:
+     *  - startTransaction (amount: String) -> begins a transaction process on the device with `amount` being charged to the card
+     *  - cancelTransaction () -> cancels a running transaction
+     */
+
+    public boolean isConnected() {
+        return lib.isDeviceConnected() && deviceIsConnected;
     }
 
-    private void emitDeviceDisconnected() {
-        if (deviceConnectionCallback != null)
-            deviceConnectionCallback.onDeviceConnection(false);
+    public String getSerialNumber() {
+        debugPrint(publicMethodTag, "getSerialNumber: " + deviceSerialNumber);
+        if (!deviceIsConnected)
+            return "disconnected";
+        return deviceSerialNumber;
+    }
+
+    public void setDebug(boolean debug) {
+        this.debug = debug;
+    }
+
+    public void startDeviceDiscovery() {
+        debugPrint(publicMethodTag, "startDeviceDiscovery: called");
+        ble.startScanningForPeripherals(deviceDiscoveredCallback);
+    }
+
+    public void cancelDeviceDiscovery() {
+        debugPrint(publicMethodTag, "stopDeviceDiscovery: called");
+        ble.stopScanningForPeripherals();
     }
 
     public void connect(String name, int timeout) {
         String address = ble.getDeviceAddress(name);
-
         if (address != null) {
             deviceIsConnecting = true;
             lib.setAddress(address);
             lib.openDevice();
-
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 CompletableFuture.delayedExecutor(timeout, TimeUnit.SECONDS).execute(() -> {
-                    if (!deviceIsConnected) { // trigger the callback if timeout triggers
-                        deviceConnectionCallback.onDeviceConnection(false);
-                        lib.closeDevice(); // make sure to cancel connection attempt
+                    if (deviceIsConnecting) {
+                        debugPrint("CONNECT TIMEOUT", String.format("called after %d seconds", timeout));
+                        if (deviceIsConnected) {
+                            emitDeviceConnected();
+                        } else {
+                            emitDeviceDisconnected();
+                        }
+                        deviceIsConnecting = false;
                     }
-                    deviceIsConnecting = false;
                 });
             } else {
                 throw new RuntimeException("SDK version not compatible");
             }
         } else {
-            Log.d(TAG, "connect: could not find a device with name '" + name + "'");
+            Log.e(publicMethodTag, "connect: could not find a device with name '" + name + "'");
         }
     }
 
     public void disconnect() {
-        if (debug) Log.d(TAG, "disconnect: called");
+        debugPrint(publicMethodTag, "disconnect: called");
         lib.closeDevice();
-    }
-
-    public void startDeviceDiscovery() {
-        if (debug) Log.d(TAG, "startDeviceDiscovery: called");
-        ble.startScanningForPeripherals(deviceDiscoveredCallback);
-    }
-
-    public void cancelDeviceDiscovery() {
-        if (debug) Log.d(TAG, "stopDeviceDiscovery: called");
-        ble.stopScanningForPeripherals();
     }
 
     @SuppressLint("DefaultLocale")
     public void startTransaction(String amount) {
-        if (debug) Log.d(TAG, "startTransaction: called with amount $" + amount);
-
-        byte[] amountBytes = new byte[6];
-        String n12format = String.format("%012.0f", Float.parseFloat(amount) * 100);
-
-        if (debug) Log.d(TAG, "startTransaction: " + n12format);
-
-        int amountBytesIndex = 0;
-        for (int i = 1; i < 12; i+=2) {
-            String stringByte = n12format.substring(i - 1, i + 1).strip();
-            if (stringByte.isEmpty())
-                amountBytes[amountBytesIndex++] = 0;
-            else
-                amountBytes[amountBytesIndex++] = (byte) (Integer.parseInt(stringByte, 16) & 0xff);
-        }
-
+        debugPrint(publicMethodTag, "startTransaction: called with amount $" + amount);
         lib.startTransaction(
                 (byte) 0x3c,
                 (byte) 7,
                 (byte) 0,
-                amountBytes,
+                n12Bytes(amount),
                 (byte) 0,
                 new byte[] { 0, 0, 0, 0, 0, 0 },
                 new byte[] { 0x08, 0x40 },
@@ -291,14 +356,9 @@ public class MagTekBLEController {
     }
 
     public void cancelTransaction() {
-        if (debug) Log.d(TAG, "cancelTransaction: called");
+        debugPrint(publicMethodTag, "cancelTransaction: called");
         lib.cancelTransaction();
     }
 
-    public String getSerialNumber() {
-        if (debug) Log.d(TAG, "getSerialNumber: called");
-        if (!deviceIsConnected)
-            return "disconnected";
-        return deviceSerialNumber;
-    }
+
 }
