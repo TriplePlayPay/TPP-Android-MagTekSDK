@@ -22,4 +22,4 @@ Then, grab the file
 cp ./TPP-Android-MagTekSDK/build/outputs/aar/TPP-Android-MagTekSDK-release.aar ./TPP-MagTekSDK.aar
 ```
 # Documentation
-Go [here](Docs/MagTekCardReader.md)
+Go [here](Docs/magtek-card-reader.md)
